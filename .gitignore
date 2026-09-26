@@ -1,0 +1,14 @@
+app/bridge-key.js
+app/bridge-config.js
+app/.buildResult/
+app/Debug/
+app/Release/
+*.wgt
+*.p12
+*.pwd
+*.xml.user
+.DS_Store
+Thumbs.db
+node_modules/
+session.enc
+bridge-key.bin

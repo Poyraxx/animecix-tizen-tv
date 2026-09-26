@@ -1,0 +1,85 @@
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; background: #101113; color: #f7f8fb; font-family: Arial, Helvetica, sans-serif; overflow: hidden; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:focus, input:focus { outline: 4px solid #1798ff; outline-offset: 4px; }
+#app { width: 100%; height: 100%; }
+#topbar { position: absolute; top: 0; left: 0; right: 0; height: 92px; z-index: 20; display: flex; align-items: center; justify-content: space-between; padding: 0 76px; background: rgba(13, 14, 17, .92); border-bottom: 1px solid rgba(255,255,255,.08); }
+#brand { border: 0; padding: 7px 0; background: none; color: #fff; font-size: 36px; font-weight: 800; letter-spacing: -2px; }
+#brand { margin-right: auto; }
+#brand:first-letter { color: #1597fa; }
+#topbar button:not(#brand) { border: 1px solid #363a42; border-radius: 11px; padding: 13px 28px; margin-left: 14px; background: #20232a; color: #fff; font-size: 23px; }
+#content { position: absolute; top: 92px; bottom: 0; left: 0; right: 0; overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth; }
+#app.playing #content { top: 0; overflow: hidden; }
+#toast { position: absolute; left: 50%; bottom: 48px; z-index: 50; padding: 14px 24px; background: #262a32; border-radius: 10px; color: white; font-size: 22px; opacity: 0; transform: translateX(-50%); pointer-events: none; transition: opacity .2s; }
+#toast.visible { opacity: 1; }
+.loading { margin: 23vh auto 0; width: 68px; height: 68px; border: 6px solid #414851; border-top-color: #1395f8; border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.hero { position: relative; min-height: 470px; padding: 82px 76px 55px; overflow: hidden; background: #171a20; }
+.hero-backdrop { position: absolute; top: 0; bottom: 0; left: 0; right: 0; background-size: cover; background-position: center 27%; opacity: .34; }
+.hero-shade { position: absolute; top: 0; bottom: 0; left: 0; right: 0; background: linear-gradient(90deg, #101113 5%, rgba(16,17,19,.92) 34%, rgba(16,17,19,.28) 100%), linear-gradient(0deg, #101113, transparent 35%); }
+.hero-content { position: relative; max-width: 1100px; }
+.eyebrow { color: #3dabff; font-size: 22px; font-weight: 700; margin-bottom: 16px; }
+.hero h1 { font-size: 60px; line-height: 1.1; margin: 0 0 22px; }
+.hero p { font-size: 25px; line-height: 1.45; max-height: 106px; overflow: hidden; color: #d1d5dd; margin: 0 0 28px; }
+.primary, .secondary { border: 0; border-radius: 12px; padding: 17px 31px; color: #fff; font-size: 23px; font-weight: 700; }
+.primary { background: #0b86ea; }
+.secondary { background: #30353f; }
+.row { margin: 0 0 48px; padding: 0 76px; }
+.row h2 { font-size: 30px; margin: 0 0 23px; }
+.cards { display: flex; align-items: flex-start; overflow-x: auto; overflow-y: visible; padding: 6px 5px 13px; scrollbar-width: none; }
+.cards::-webkit-scrollbar { display: none; }
+.card { position: relative; flex: 0 0 185px; width: 185px; height: 370px; margin-right: 23px; padding: 0; border: 0; border-radius: 12px; overflow: hidden; background: #252932; color: #fff; text-align: left; vertical-align: top; }
+.card img { display: block; width: 185px; height: 268px; object-fit: cover; background: #242731; }
+.card-name { display: -webkit-box; padding: 13px 12px 4px; height: 66px; font-size: 20px; line-height: 1.2; font-weight: 700; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.card-meta { display: block; padding: 0 12px 14px; color: #acb4c3; font-size: 16px; }
+.card:focus { transform: scale(1.045); z-index: 2; box-shadow: 0 8px 35px rgba(0,0,0,.7); }
+.detail { padding-bottom: 70px; }
+.detail .hero { min-height: 430px; }
+.detail .hero-content { max-width: 1260px; }
+.detail .hero p { max-height: 145px; }
+.season-bar { padding: 22px 76px 12px; display: flex; }
+.season-bar button { margin-right: 15px; }
+.season-bar button, .episode, .quality-option, .source-option { border: 1px solid #3d434d; background: #22262e; color: #fff; border-radius: 10px; }
+.season-bar button { padding: 13px 24px; font-size: 21px; }
+.season-bar button.active { border-color: #148ef3; background: #0d5f9e; }
+.episode-list { padding: 10px 76px 45px; display: flex; flex-wrap: wrap; }
+.episode { width: 31.5%; min-height: 93px; margin-right: 1.8%; margin-bottom: 16px; padding: 17px 19px; text-align: left; display: flex; align-items: center; }
+.episode-num { margin-right: 18px; }
+.episode-num { color: #42a8ff; font-size: 26px; font-weight: 700; }
+.episode-title { font-size: 21px; line-height: 1.25; }
+.load-more { margin: 0 76px 40px; }
+.search-page { padding: 46px 76px; }
+.search-page input { display: block; width: 100%; max-width: 850px; padding: 20px 25px; background: #20242b; border: 2px solid #414854; border-radius: 12px; color: #fff; font-size: 29px; margin-bottom: 42px; }
+.search-page h2 { margin: 0 0 22px; font-size: 30px; }
+.search-page .cards { flex-wrap: wrap; overflow: visible; }
+.account-page { padding: 58px 76px; max-width: 980px; }
+.account-page h1 { font-size: 43px; margin: 0 0 30px; }
+.account-page p { font-size: 24px; line-height: 1.5; color: #d1d5dd; }
+.account-page input { display: block; width: 100%; padding: 20px 25px; margin: 32px 0; background: #20242b; border: 2px solid #414854; border-radius: 12px; color: #fff; font-size: 27px; }
+.account-page .primary { margin-top: 12px; }
+.account-page .secondary { display: block; margin-top: 16px; }
+.player { position: absolute; top: 0; bottom: 0; left: 0; right: 0; background: #000; z-index: 30; }
+.player video, .player iframe { position: absolute; width: 100%; height: 100%; border: 0; object-fit: contain; background: #000; }
+.player-top, .player-bottom { position: absolute; left: 0; right: 0; z-index: 2; display: flex; align-items: center; padding: 28px 60px; background: rgba(0,0,0,.75); }
+.player-top > *, .player-bottom > * { margin-right: 18px; }
+.player-top { top: 0; }
+.player-bottom { bottom: 0; }
+.player-title { flex: 1; font-size: 25px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player button { border: 1px solid #5d6674; border-radius: 9px; padding: 11px 20px; background: rgba(31,36,45,.94); color: white; font-size: 21px; }
+.player-bottom .seek-bar { position: relative; flex: 1; height: 36px; padding: 0; border: 0; background: linear-gradient(#4f5661,#4f5661) center / 100% 9px no-repeat; }
+.player-bottom .seek-bar span { position: absolute; top: 13px; left: 0; height: 10px; width: 0; border-radius: 6px; background: #1599ff; }
+.player-bottom .seek-bar span:after { content: ''; position: absolute; top: -6px; right: -11px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 5px #1599ff; }
+.player-bottom .seek-bar:focus { outline: 3px solid #fff; outline-offset: 5px; }
+.time { min-width: 140px; color: #e7e9ec; font-size: 19px; text-align: right; }
+.player-controls-hidden .player-top, .player-controls-hidden .player-bottom { opacity: 0; pointer-events: none; }
+.seek-preview { position: absolute; bottom: 110px; z-index: 3; width: 320px; height: 198px; overflow: hidden; visibility: hidden; border: 2px solid #fff; border-radius: 9px; background: #1b1e25; box-shadow: 0 12px 35px rgba(0,0,0,.7); }
+.seek-preview.visible { visibility: visible; }
+.seek-preview.no-image { width: 108px; height: 46px; }
+.seek-preview img { position: absolute; top: 0; left: 0; width: 100%; height: 178px; object-fit: cover; }
+.seek-preview-time { position: absolute; bottom: 0; left: 0; right: 0; height: 30px; padding: 4px 9px; background: rgba(0,0,0,.85); color: #fff; font-size: 18px; text-align: center; }
+.seek-preview.no-image .seek-preview-time { height: 100%; padding: 8px; background: #1b1e25; font-size: 23px; }
+.choice { position: absolute; right: 55px; top: 100px; z-index: 4; padding: 15px; min-width: 270px; max-height: 65%; overflow-y: auto; background: #1b1e25; border: 1px solid #565d67; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.7); }
+.choice button { display: block; width: 100%; margin: 6px 0; text-align: left; }
+.message { padding: 40px 76px; color: #d8dce3; font-size: 25px; }
+@media (max-width: 1280px) { #topbar { height: 78px; padding: 0 40px; } #topbar button:not(#brand) { padding: 10px 16px; font-size: 19px; } #content { top: 78px; } .hero { padding: 60px 40px 45px; } .row, .episode-list, .search-page, .account-page { padding-left: 40px; padding-right: 40px; } .season-bar { padding-left: 40px; padding-right: 40px; } .hero h1 { font-size: 46px; } .hero p { font-size: 21px; } .card { flex-basis: 150px; width: 150px; } .card img { width: 150px; height: 218px; } .episode { width: 48%; } }
