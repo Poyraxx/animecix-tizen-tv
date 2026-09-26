@@ -181,14 +181,3 @@ Yanıt `{"ready":true}` olmalıdır. Yanıt gelmiyorsa kurulumu tekrar çalışt
 ### Sağ ve sol tuşları videoyu sarmıyor
 
 Video ekranında aşağı tuşuyla zaman çizelgesine gelin. Zaman çizelgesi odaktayken sağ ve sol tuşları sarma için kullanılır. Üst menü odaktayken aynı tuşlar Kaynak ve Kalite düğmeleri arasında dolaşır.
-
-## Proje yapısı
-
-```text
-app/          Tizen TV uygulaması
-bridge/       Bilgisayarda çalışan yerel hesap bağlantısı
-scripts/      Windows kurulum betiği
-screenshots/  Uygulama görüntüleri
-```
-
-`bridge-key.js`, `bridge-config.js`, sertifikalar, WGT paketleri ve oturum dosyaları bilerek Git dışında tutulur.
