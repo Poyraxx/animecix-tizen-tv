@@ -16,6 +16,7 @@ Bu proje AnimeciX veya Samsung'un resmî uygulaması değildir. Herhangi bir vid
 - E-posta ve şifreyle hesap girişi
 - Hesaba bağlı izleme geçmişi
 - Kaldığın yerden devam etme
+- Hesap geçmişini TV'de yerel olarak saklama
 - Kaynak ve kalite seçimi
 - Oynat, duraklat, ileri sar ve geri sar kontrolleri
 - İzleme konumunu TV'de saklama
@@ -27,7 +28,7 @@ Tizen uygulamaları TV'de yerel bir uygulama adresinden çalışır. AnimeciX he
 
 Servis yalnızca kurulum sırasında belirtilen TV IP adresinden ve aynı bilgisayardan gelen istekleri kabul eder. TV ile bilgisayar arasındaki istekler kurulumda üretilen AES-256-GCM anahtarıyla şifrelenir. Şifre, oturum çerezi ve üretilen anahtar Git deposuna yazılmaz.
 
-Hesap eşitlemesinin çalışması için bilgisayar açık olmalıdır. Video oynatma başladıktan sonra yayın TV tarafından doğrudan kaynaktan alınır.
+Hesap eşitlemesi sırasında alınan geçmiş TV'de yerel olarak saklanır. Bilgisayar daha sonra kapalı olsa da kaldığın yerden devam etme kayıtları kullanılabilir. Yeni kayıtların web hesabına aktarılması için bağlantı servisi gerekir. Video oynatma başladıktan sonra yayın TV tarafından doğrudan kaynaktan alınır.
 
 ## Gerekenler
 

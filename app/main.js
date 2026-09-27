@@ -154,7 +154,7 @@ function loadAccountHistory() {
     function loadPage(page) {
         function received(error, data) {
             if (generation !== historyGeneration || currentAccount !== accountId) return;
-            if (error) { if (entries.length) { remoteProgress = entries; if (state.view === 'home') renderHome(); } return; }
+            if (error) { if (entries.length) finishAccountHistory(entries); return; }
             var items = data && data.data && data.data.totalData || [];
             for (var i = 0; i < items.length; i++) {
                 var item = items[i];
@@ -163,12 +163,28 @@ function loadAccountHistory() {
                 entries.push({ id: item.id, name: item.name, poster: item.poster, season: video.season_num == null ? 1 : video.season_num, episodeNumber: video.episode_num, episodeName: '', time: Number(item.currentTime) || 0, updated: Number(item.date) || 0 });
             }
             if (items.length >= 10 && page < 9) loadPage(page + 1);
-            else { remoteProgress = entries; if (state.view === 'home') renderHome(); }
+            else finishAccountHistory(entries);
         }
         if (useBridge) bridgeCall('history', { page: page }, received);
         else request(API + 'history/get-titles?page=' + page + '&query=', received);
     }
     loadPage(0);
+}
+
+function finishAccountHistory(entries) {
+    remoteProgress = entries;
+    var combined = entries.concat(readSavedProgress());
+    combined.sort(function (left, right) { return (Number(right.updated) || 0) - (Number(left.updated) || 0); });
+    var saved = [];
+    var seen = {};
+    for (var i = 0; i < combined.length; i++) {
+        var entry = combined[i];
+        if (!entry || !entry.id || entry.episodeNumber == null || seen[String(entry.id)]) continue;
+        seen[String(entry.id)] = true;
+        saved.push(entry);
+    }
+    try { localStorage.setItem(progressStorageKey(), JSON.stringify(saved.slice(0, 100))); } catch (error) {}
+    if (state.view === 'home') renderHome();
 }
 
 function loginAccount(email, password) {
@@ -238,7 +254,7 @@ function readProgress() {
             merged.push(entry);
         }
     }
-    return merged.slice(0, 50);
+    return merged.slice(0, 100);
 }
 
 function saveProgress(force) {
@@ -251,7 +267,7 @@ function saveProgress(force) {
     if (!isFinite(video.duration) || video.currentTime < video.duration - 20) {
         entries.unshift({ id: state.title.id, name: state.title.name, poster: state.title.poster, season: state.season, episodeNumber: state.episode.episode_number, episodeName: state.episode.name || '', time: Math.floor(video.currentTime), updated: now });
     }
-    try { localStorage.setItem(progressStorageKey(), JSON.stringify(entries.slice(0, 24))); } catch (error) {}
+    try { localStorage.setItem(progressStorageKey(), JSON.stringify(entries.slice(0, 100))); } catch (error) {}
     syncHistory(now, video.currentTime, force);
 }
 
