@@ -13,6 +13,7 @@ Bu proje AnimeciX veya Samsung'un resmî uygulaması değildir. Herhangi bir vid
 - Samsung Tizen 4.0 ve üzeri TV Web uygulaması
 - Kumandayla tam yön tuşu ve odak kontrolü
 - Anime arama ve bölüm listeleri
+- Sezon bölüm listelerini TV'de önbelleğe alma
 - E-posta ve şifreyle hesap girişi
 - Hesaba bağlı izleme geçmişi
 - Kaldığın yerden devam etme

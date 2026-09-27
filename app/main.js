@@ -12,6 +12,7 @@ var previewCues = [];
 var requestToken = 0;
 var searchMovePending = false;
 var progressKey = 'animecix.progress.v1';
+var seasonCacheKey = 'animecix.seasons.v1';
 var lastProgressSave = 0;
 var lastHistorySync = 0;
 var accountName = '';
@@ -21,6 +22,10 @@ var historyGeneration = 0;
 var remoteProgress = [];
 var bridgeActive = false;
 var useBridge = false;
+var seasonCache = {};
+var seasonPending = {};
+
+try { seasonCache = JSON.parse(localStorage.getItem(seasonCacheKey) || '{}') || {}; } catch (error) { seasonCache = {}; }
 
 try {
     bridgeActive = localStorage.getItem('animecix.bridge') === '1';
@@ -541,20 +546,97 @@ function openTitle(item) {
     loadSeason(1);
 }
 
+function seasonKey(id, number) {
+    return String(id) + ':' + String(number);
+}
+
+function cachedSeason(id, number) {
+    var key = seasonKey(id, number);
+    var cached = seasonCache[key];
+    if (!cached || !cached.savedAt || Date.now() - cached.savedAt > 21600000) {
+        if (cached) delete seasonCache[key];
+        return null;
+    }
+    return cached;
+}
+
+function storeSeason(title, number, episodes, page) {
+    var key = seasonKey(title.id, number);
+    seasonCache[key] = {
+        savedAt: Date.now(),
+        page: page || 1,
+        episodes: episodes || [],
+        title: {
+            id: title.id,
+            name: title.name,
+            poster: title.poster,
+            backdrop: title.backdrop,
+            description: title.description,
+            year: title.year,
+            seasons: title.seasons || [],
+            season: title.season || null
+        }
+    };
+    var keys = Object.keys(seasonCache);
+    keys.sort(function (left, right) { return seasonCache[right].savedAt - seasonCache[left].savedAt; });
+    for (var i = 20; i < keys.length; i++) delete seasonCache[keys[i]];
+    try { localStorage.setItem(seasonCacheKey, JSON.stringify(seasonCache)); } catch (error) {
+        for (var j = 8; j < keys.length; j++) delete seasonCache[keys[j]];
+        try { localStorage.setItem(seasonCacheKey, JSON.stringify(seasonCache)); } catch (storageError) {}
+    }
+    return seasonCache[key];
+}
+
+function fetchSeason(id, number, callback) {
+    var cached = cachedSeason(id, number);
+    if (cached) { callback(null, cached); return; }
+    var key = seasonKey(id, number);
+    if (seasonPending[key]) { seasonPending[key].push(callback); return; }
+    seasonPending[key] = [callback];
+    request(API + 'titles/' + encodeURIComponent(id) + '?seasonNumber=' + encodeURIComponent(number) + '&page=1', function (error, data) {
+        var result = null;
+        if (!error && data && data.title && Number(data.title.id) === Number(id)) {
+            var pages = data.title.season && data.title.season.episodePagination;
+            result = storeSeason(data.title, number, pages && pages.data ? pages.data : [], 1);
+        }
+        var callbacks = seasonPending[key] || [];
+        delete seasonPending[key];
+        for (var i = 0; i < callbacks.length; i++) callbacks[i](error || !result ? new Error('Bölümler yüklenemedi') : null, result);
+    }, true);
+}
+
+function prefetchSeasons(id, seasons, current) {
+    var numbers = [];
+    for (var i = 0; i < seasons.length; i++) if (seasons[i].number !== current && !cachedSeason(id, seasons[i].number)) numbers.push(seasons[i].number);
+    numbers.sort(function (left, right) { return Math.abs(left - current) - Math.abs(right - current); });
+    numbers = numbers.slice(0, 4);
+    var index = 0;
+    var active = 0;
+    function next() {
+        while (active < 2 && index < numbers.length) {
+            active++;
+            fetchSeason(id, numbers[index++], function () { active--; next(); });
+        }
+    }
+    next();
+}
+
 function loadSeason(number) {
     var token = ++requestToken;
     var id = state.title.id;
     state.season = number;
     state.page = 1;
     state.episodes = [];
-    request(API + 'titles/' + encodeURIComponent(id) + '?seasonNumber=' + encodeURIComponent(number) + '&page=1', function (error, data) {
+    renderDetail();
+    fetchSeason(id, number, function (error, cached) {
         if (state.view !== 'detail' || token !== requestToken) return;
-        if (error || !data || !data.title || Number(data.title.id) !== Number(id)) { notify('Bölümler yüklenemedi'); return; }
-        state.title = data.title;
-        var pages = data.title.season && data.title.season.episodePagination;
-        state.episodes = pages && pages.data ? pages.data : [];
+        if (error || !cached) { notify('Bölümler yüklenemedi'); return; }
+        state.title = cached.title;
+        state.episodes = cached.episodes.slice();
+        state.page = cached.page || 1;
         renderDetail();
-    }, true);
+        prefetchSeasons(id, state.title.seasons || [], number);
+    });
 }
 
 function loadMore() {
@@ -566,7 +648,9 @@ function loadMore() {
         if (error || !data || !data.title || !data.title.season || !data.title.season.episodePagination) { notify('Bölümler yüklenemedi'); return; }
         var extra = data.title.season.episodePagination.data || [];
         for (var i = 0; i < extra.length; i++) state.episodes.push(extra[i]);
+        state.title.season = data.title.season;
         state.page = nextPage;
+        storeSeason(state.title, state.season, state.episodes, state.page);
         renderDetail();
     }, true);
 }
