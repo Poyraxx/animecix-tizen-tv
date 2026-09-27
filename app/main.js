@@ -299,6 +299,7 @@ function resumeEpisode(entry) {
     state.title = { id: entry.id, name: entry.name, poster: entry.poster };
     state.season = entry.season == null ? 1 : entry.season;
     state.episodes = [];
+    fetchSeason(entry.id, state.season, function () {});
     openEpisode({ episode_number: entry.episodeNumber, name: entry.episodeName }, entry.time);
 }
 
@@ -1012,9 +1013,13 @@ function closePlayer() {
     document.getElementById('app').className = '';
     document.getElementById('topbar').style.display = 'flex';
     state.view = 'detail';
-    renderDetail();
-    var first = content.querySelector('.episode');
-    if (first) first.focus();
+    if (!state.episodes.length) {
+        loadSeason(state.season);
+    } else {
+        renderDetail();
+        var first = content.querySelector('.episode');
+        if (first) first.focus();
+    }
 }
 
 function back() {

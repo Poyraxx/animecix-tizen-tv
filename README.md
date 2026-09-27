@@ -14,6 +14,7 @@ Bu proje AnimeciX veya Samsung'un resmî uygulaması değildir. Herhangi bir vid
 - Kumandayla tam yön tuşu ve odak kontrolü
 - Anime arama ve bölüm listeleri
 - Sezon bölüm listelerini TV'de önbelleğe alma
+- Oynatıcıdan geri dönünce bölüm listesini otomatik açma
 - E-posta ve şifreyle hesap girişi
 - Hesaba bağlı izleme geçmişi
 - Kaldığın yerden devam etme
