@@ -24,6 +24,13 @@ var bridgeActive = false;
 var useBridge = false;
 var seasonCache = {};
 var seasonPending = {};
+var homeListsPending = false;
+var homeLatestPending = false;
+var watchedKey = 'animecix.watched.v1';
+var searchHistoryKey = 'animecix.searches.v1';
+var currentSearchTerm = '';
+var nextTimer = null;
+var introSkipSeconds = 85;
 
 try { seasonCache = JSON.parse(localStorage.getItem(seasonCacheKey) || '{}') || {}; } catch (error) { seasonCache = {}; }
 
@@ -268,6 +275,7 @@ function saveProgress(force) {
     var now = Date.now();
     if (!force && now - lastProgressSave < 5000) return;
     lastProgressSave = now;
+    markWatched(state.title, state.season, state.episode.episode_number, video.currentTime, video.duration);
     var entries = readSavedProgress().filter(function (entry) { return String(entry.id) !== String(state.title.id); });
     if (!isFinite(video.duration) || video.currentTime < video.duration - 20) {
         entries.unshift({ id: state.title.id, name: state.title.name, poster: state.title.poster, season: state.season, episodeNumber: state.episode.episode_number, episodeName: state.episode.name || '', time: Math.floor(video.currentTime), updated: now });
@@ -350,6 +358,12 @@ function imageUrl(url, width) {
 
 function request(url, callback, withHeader) {
     var xhr = new XMLHttpRequest();
+    var finished = false;
+    function finish(error, data) {
+        if (finished) return;
+        finished = true;
+        callback(error, data);
+    }
     xhr.open('GET', url, true);
     xhr.withCredentials = !!window.tizen;
     xhr.timeout = 18000;
@@ -357,15 +371,42 @@ function request(url, callback, withHeader) {
     if (withHeader) xhr.setRequestHeader('X-E-H', 'tv.client');
     xhr.onreadystatechange = function () {
         if (xhr.readyState !== 4) return;
+        if (xhr.status === 0) { setTimeout(function () { finish(new Error('HTTP 0')); }, 0); return; }
         if (xhr.status >= 200 && xhr.status < 300) {
-            try { callback(null, JSON.parse(xhr.responseText)); }
-            catch (error) { callback(error); }
+            var data;
+            try { data = JSON.parse(xhr.responseText); }
+            catch (error) { finish(new Error('Geçersiz yanıt')); return; }
+            finish(null, data);
         } else {
-            callback(new Error('HTTP ' + xhr.status));
+            finish(new Error('HTTP ' + xhr.status));
         }
     };
-    xhr.ontimeout = function () { callback(new Error('Zaman aşımı')); };
+    xhr.ontimeout = function () { finish(new Error('Zaman aşımı')); };
     xhr.send();
+}
+
+function errorText(error) {
+    var text = error && error.message ? error.message : '';
+    var match = text.match(/^HTTP (\d+)$/);
+    var status = match ? Number(match[1]) : -1;
+    if (text === 'Zaman aşımı') return 'Sunucu zamanında yanıt vermedi. Site yavaş ya da kapalı olabilir.';
+    if (status === 0) return 'Sunucuya bağlanılamadı. TV\'nin internet bağlantısını kontrol et.';
+    if (status >= 500) return 'AnimeciX sunucusu şu an yanıt vermiyor (HTTP ' + status + '). Site geçici olarak kapalı olabilir.';
+    if (status === 404) return 'İçerik bulunamadı (HTTP 404).';
+    if (status === 403 || status === 429) return 'Sunucu isteği reddetti (HTTP ' + status + '). Biraz sonra tekrar dene.';
+    if (status > 0) return 'İstek başarısız oldu (HTTP ' + status + ').';
+    if (text === 'Geçersiz yanıt') return 'Sunucudan beklenmeyen bir yanıt geldi.';
+    return text || 'Bilinmeyen bir hata oluştu.';
+}
+
+function errorBox(text, retry, backLabel, backAction) {
+    var box = el('div', 'error-box');
+    box.appendChild(el('div', 'error-text', text));
+    var actions = el('div', 'error-actions');
+    if (retry) actions.appendChild(button('Tekrar Dene', 'primary', retry));
+    if (backLabel && backAction) actions.appendChild(button(backLabel, 'secondary', backAction));
+    box.appendChild(actions);
+    return box;
 }
 
 function post(url, payload, callback) {
@@ -411,16 +452,27 @@ function showHome() {
     state.view = 'home';
     state.title = null;
     document.getElementById('topbar').style.display = 'flex';
+    if (!state.lists || !state.latest) state.homeError = null;
+    if (!state.lists && !homeListsPending) {
+        homeListsPending = true;
+        request(API + 'homepage/lists-guests', function (error, data) {
+            homeListsPending = false;
+            if (!error && data && data.lists) state.lists = data.lists;
+            else state.homeError = error || new Error('Geçersiz yanıt');
+            if (state.view === 'home') renderHome();
+        });
+    }
+    if (!state.latest && !homeLatestPending) {
+        homeLatestPending = true;
+        request(API + 'last-episodes?page=1', function (error, data) {
+            homeLatestPending = false;
+            if (!error && data && data.data) state.latest = data.data;
+            else state.homeError = error || new Error('Geçersiz yanıt');
+            if (state.view === 'home') renderHome();
+        });
+    }
     renderHome();
     if (document.activeElement === document.body || !document.body.contains(document.activeElement)) document.getElementById('brand').focus();
-    if (!state.lists) request(API + 'homepage/lists-guests', function (error, data) {
-        if (!error && data && data.lists) state.lists = data.lists;
-        if (state.view === 'home') renderHome();
-    });
-    if (!state.latest) request(API + 'last-episodes?page=1', function (error, data) {
-        if (!error && data && data.data) state.latest = data.data;
-        if (state.view === 'home') renderHome();
-    });
 }
 
 function hero(item, label, action) {
@@ -482,7 +534,19 @@ function renderHome() {
     if (featured) content.appendChild(hero(featured, lists[0].name, function () { openTitle(featured); }));
     var progress = readProgress();
     if (progress.length) content.appendChild(progressRow(progress));
-    if (!featured && !lists.length && !latest.length && !progress.length) { content.appendChild(el('div', 'loading')); return; }
+    if (!lists.length && !latest.length) {
+        if (homeListsPending || homeLatestPending) {
+            if (!progress.length) { content.appendChild(el('div', 'loading')); return; }
+        } else if (state.homeError) {
+            var homeBox = errorBox(errorText(state.homeError), function () { showHome(); });
+            content.appendChild(homeBox);
+            if (focused === document.body || !document.body.contains(focused) || (focused && focused.closest && focused.closest('.error-box'))) {
+                var retryButton = homeBox.querySelector('button');
+                if (retryButton) retryButton.focus();
+            }
+            return;
+        }
+    }
     if (latest.length) content.appendChild(row('Son Eklenen Bölümler', latest, true));
     for (var i = 0; i < lists.length; i++) {
         if (lists[i].items && lists[i].items.length) content.appendChild(row(lists[i].name, lists[i].items, false));
@@ -513,38 +577,135 @@ function openSearch() {
     var results = el('div');
     page.appendChild(results);
     content.appendChild(page);
+    currentSearchTerm = '';
+    function runSearch(term) {
+        var token = ++requestToken;
+        currentSearchTerm = '';
+        request(API + 'search/' + encodeURIComponent(term) + '?type=undefined&limit=24&provider=null', function (error, data) {
+            if (state.view !== 'search' || token !== requestToken) return;
+            clear(results);
+            if (error || !data || !data.results) {
+                results.appendChild(errorBox('Arama yapılamadı. ' + errorText(error || new Error('Geçersiz yanıt')), function () { runSearch(term); }));
+                if (searchMovePending) { searchMovePending = false; var retry = results.querySelector('button'); if (retry) retry.focus(); }
+                return;
+            }
+            currentSearchTerm = term;
+            if (!data.results.length) { results.appendChild(el('div', 'message', '"' + term + '" için sonuç bulunamadı')); searchMovePending = false; return; }
+            results.appendChild(row('Sonuçlar', data.results, false));
+            if (searchMovePending) {
+                searchMovePending = false;
+                var first = results.querySelector('.card');
+                if (first) { first.focus(); first.scrollIntoView(false); }
+            }
+        });
+    }
+    function showHistory() {
+        clear(results);
+        var terms = readSearches();
+        if (!terms.length) return;
+        var section = el('section', 'search-history');
+        section.appendChild(el('h2', '', 'Son aramalar'));
+        var list = el('div', 'history-list');
+        for (var i = 0; i < terms.length; i++) {
+            (function (term) {
+                list.appendChild(button(term, 'history-item', function () {
+                    clearTimeout(searchTimer);
+                    input.value = term;
+                    searchMovePending = true;
+                    clear(results);
+                    results.appendChild(el('div', 'loading'));
+                    runSearch(term);
+                }));
+            })(terms[i]);
+        }
+        list.appendChild(button('Geçmişi Temizle', 'history-clear', function () {
+            try { localStorage.removeItem(searchHistoryKey); } catch (error) {}
+            showHistory();
+            input.focus();
+        }));
+        section.appendChild(list);
+        results.appendChild(section);
+    }
     input.addEventListener('input', function () {
         clearTimeout(searchTimer);
         var term = input.value.replace(/^\s+|\s+$/g, '');
-        if (term.length < 2) { searchMovePending = false; clear(results); return; }
-        searchTimer = setTimeout(function () {
-            var token = ++requestToken;
-            request(API + 'search/' + encodeURIComponent(term) + '?type=undefined&limit=24&provider=null', function (error, data) {
-                if (state.view !== 'search' || token !== requestToken) return;
-                clear(results);
-                if (error || !data || !data.results) { results.appendChild(el('div', 'message', 'Arama yapılamadı')); return; }
-                results.appendChild(row('Sonuçlar', data.results, false));
-                if (searchMovePending) {
-                    searchMovePending = false;
-                    var first = results.querySelector('.card');
-                    if (first) { first.focus(); first.scrollIntoView(false); }
-                }
-            });
-        }, 400);
+        if (term.length < 2) { searchMovePending = false; requestToken++; currentSearchTerm = ''; showHistory(); return; }
+        searchTimer = setTimeout(function () { runSearch(term); }, 400);
     });
+    showHistory();
     input.focus();
+}
+
+function readSearches() {
+    try {
+        var terms = JSON.parse(localStorage.getItem(searchHistoryKey) || '[]');
+        return Array.isArray(terms) ? terms.filter(function (term) { return typeof term === 'string' && term.length > 1; }).slice(0, 10) : [];
+    } catch (error) { return []; }
+}
+
+function saveSearch(term) {
+    term = String(term || '').replace(/^\s+|\s+$/g, '');
+    if (term.length < 2) return;
+    var lower = term.toLocaleLowerCase('tr');
+    var terms = [term].concat(readSearches().filter(function (old) { return old.toLocaleLowerCase('tr') !== lower; }));
+    try { localStorage.setItem(searchHistoryKey, JSON.stringify(terms.slice(0, 10))); } catch (error) {}
+}
+
+function progressFor(id) {
+    var entries = readProgress();
+    for (var i = 0; i < entries.length; i++) if (String(entries[i].id) === String(id)) return entries[i];
+    return null;
 }
 
 function openTitle(item) {
     if (!item || !item.id) return;
+    if (state.view === 'search' && currentSearchTerm) saveSearch(currentSearchTerm);
     requestToken++;
+    var saved = progressFor(item.id);
+    var season = saved && saved.season != null ? Number(saved.season) || 1 : 1;
     state.view = 'detail';
     state.title = item;
-    state.season = 1;
+    state.season = season;
     state.page = 1;
     state.episodes = [];
+    state.detailError = null;
     renderDetail();
-    loadSeason(1);
+    loadSeason(season);
+}
+
+function watchedStorageKey() {
+    return watchedKey + '.' + (accountId || 'guest');
+}
+
+function readWatched() {
+    try {
+        var data = JSON.parse(localStorage.getItem(watchedStorageKey()) || '{}');
+        return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    } catch (error) { return {}; }
+}
+
+function watchedFor(id) {
+    var entry = readWatched()[String(id)];
+    return entry && entry.e && typeof entry.e === 'object' ? entry.e : {};
+}
+
+function markWatched(title, season, number, time, duration) {
+    if (!title || !title.id || number == null || !isFinite(time) || !isFinite(duration) || duration <= 0) return;
+    var all = readWatched();
+    var id = String(title.id);
+    var entry = all[id] && all[id].e ? all[id] : { e: {} };
+    var key = season + ':' + number;
+    var old = entry.e[key] || {};
+    var done = !!old.done || time >= duration * 0.9 || (duration > 600 && duration - time <= 120);
+    entry.e[key] = { t: Math.floor(time), d: Math.floor(duration), done: done };
+    entry.u = Date.now();
+    all[id] = entry;
+    var ids = Object.keys(all);
+    if (ids.length > 150) {
+        ids.sort(function (left, right) { return (all[right].u || 0) - (all[left].u || 0); });
+        for (var i = 150; i < ids.length; i++) delete all[ids[i]];
+    }
+    try { localStorage.setItem(watchedStorageKey(), JSON.stringify(all)); } catch (error) {}
 }
 
 function seasonKey(id, number) {
@@ -602,7 +763,8 @@ function fetchSeason(id, number, callback) {
         }
         var callbacks = seasonPending[key] || [];
         delete seasonPending[key];
-        for (var i = 0; i < callbacks.length; i++) callbacks[i](error || !result ? new Error('Bölümler yüklenemedi') : null, result);
+        var failure = error || (!result ? new Error('Geçersiz yanıt') : null);
+        for (var i = 0; i < callbacks.length; i++) callbacks[i](failure, result);
     }, true);
 }
 
@@ -628,10 +790,11 @@ function loadSeason(number) {
     state.season = number;
     state.page = 1;
     state.episodes = [];
+    state.detailError = null;
     renderDetail();
     fetchSeason(id, number, function (error, cached) {
         if (state.view !== 'detail' || token !== requestToken) return;
-        if (error || !cached) { notify('Bölümler yüklenemedi'); return; }
+        if (error || !cached) { state.detailError = error || new Error('Geçersiz yanıt'); renderDetail(); return; }
         state.title = cached.title;
         state.episodes = cached.episodes.slice();
         state.page = cached.page || 1;
@@ -646,7 +809,7 @@ function loadMore() {
     var id = state.title.id;
     request(API + 'titles/' + encodeURIComponent(id) + '?seasonNumber=' + state.season + '&page=' + nextPage, function (error, data) {
         if (state.view !== 'detail' || token !== requestToken) return;
-        if (error || !data || !data.title || !data.title.season || !data.title.season.episodePagination) { notify('Bölümler yüklenemedi'); return; }
+        if (error || !data || !data.title || !data.title.season || !data.title.season.episodePagination) { notify('Bölümler yüklenemedi. ' + errorText(error || new Error('Geçersiz yanıt'))); return; }
         var extra = data.title.season.episodePagination.data || [];
         for (var i = 0; i < extra.length; i++) state.episodes.push(extra[i]);
         state.title.season = data.title.season;
@@ -679,22 +842,58 @@ function renderDetail() {
     }
     var episodes = el('div', 'episode-list');
     if (state.episodes.length) {
+        var watched = watchedFor(title.id);
+        var saved = progressFor(title.id);
+        var savedHere = saved && Number(saved.season == null ? 1 : saved.season) === Number(state.season) ? saved : null;
+        var resumeNumber = null;
+        var lastDone = null;
+        for (var r = 0; r < state.episodes.length; r++) {
+            var info = watched[state.season + ':' + state.episodes[r].episode_number];
+            if (info && info.done && (lastDone === null || Number(state.episodes[r].episode_number) > lastDone)) lastDone = Number(state.episodes[r].episode_number);
+        }
+        if (savedHere) resumeNumber = Number(savedHere.episodeNumber);
+        else if (lastDone !== null) {
+            for (var n = 0; n < state.episodes.length; n++) {
+                var number = Number(state.episodes[n].episode_number);
+                if (number > lastDone && (resumeNumber === null || number < resumeNumber)) resumeNumber = number;
+            }
+        }
         for (var j = 0; j < state.episodes.length; j++) {
             (function (episode) {
-                var node = button('', 'episode', function () { openEpisode(episode); });
+                var info = watched[state.season + ':' + episode.episode_number] || null;
+                var resumeTime = 0;
+                if (info && !info.done && info.t > 0) resumeTime = info.t;
+                else if (!info && savedHere && Number(savedHere.episodeNumber) === Number(episode.episode_number)) resumeTime = Number(savedHere.time) || 0;
+                var isResume = resumeNumber !== null && Number(episode.episode_number) === resumeNumber;
+                var node = button('', 'episode' + (info && info.done ? ' watched' : '') + (isResume ? ' resume' : ''), function () { openEpisode(episode, resumeTime); });
                 node.appendChild(el('span', 'episode-num', episode.episode_number));
-                node.appendChild(el('span', 'episode-title', episode.name || 'Bölüm ' + episode.episode_number));
+                var text = el('span', 'episode-text');
+                text.appendChild(el('span', 'episode-title', episode.name || 'Bölüm ' + episode.episode_number));
+                if (isResume) text.appendChild(el('span', 'episode-meta', resumeTime > 0 ? 'Kaldığın yer · ' + formatTime(resumeTime) : 'Sıradaki bölüm'));
+                else if (resumeTime > 0) text.appendChild(el('span', 'episode-meta', 'Yarıda kaldı · ' + formatTime(resumeTime)));
+                node.appendChild(text);
+                if (info && info.done) node.appendChild(el('span', 'episode-check', '✓'));
+                if (resumeTime > 0) {
+                    var duration = info && info.d ? info.d : 0;
+                    var track = el('span', 'episode-progress');
+                    var fill = el('span');
+                    fill.style.width = (duration ? Math.min(100, Math.max(3, resumeTime / duration * 100)) : 50) + '%';
+                    track.appendChild(fill);
+                    node.appendChild(track);
+                }
                 episodes.appendChild(node);
             })(state.episodes[j]);
         }
+    } else if (state.detailError) {
+        episodes.appendChild(errorBox('Bölümler yüklenemedi. ' + errorText(state.detailError), function () { loadSeason(state.season); }, 'Ana Sayfa', function () { showHome(); }));
     } else episodes.appendChild(el('div', 'message', 'Bölümler yükleniyor'));
     detail.appendChild(episodes);
     var pageInfo = title.season && title.season.episodePagination;
     if (pageInfo && state.episodes.length && state.episodes.length < pageInfo.total) detail.appendChild(button('Daha Fazla', 'secondary load-more', loadMore));
     content.appendChild(detail);
     if (hadFocus || document.activeElement === document.body) {
-        var target = content.querySelector('.episode') || content.querySelector('.hero button');
-        if (target) target.focus();
+        var target = content.querySelector('.episode.resume') || content.querySelector('.episode') || content.querySelector('.episode-list .error-box button') || content.querySelector('.hero button');
+        if (target) { target.focus(); if (target.className.indexOf('resume') !== -1) target.scrollIntoView(false); }
     }
 }
 
@@ -706,20 +905,190 @@ function openEpisode(episode, resumeTime) {
     state.resumeTime = resumeTime || 0;
     lastHistorySync = 0;
     state.sources = [];
+    state.failedSources = [];
     state.videoData = null;
+    clearNext();
     renderPlayer();
     var url = API + 'titles/' + encodeURIComponent(state.title.id) + '?titleId=' + encodeURIComponent(state.title.id) + '&seasonNumber=' + state.season + '&episodeNumber=' + episode.episode_number + '&page=1&perPage=100';
     request(url, function (error, data) {
         if (state.view !== 'player' || token !== requestToken) return;
-        if (error || !data || !data.title || Number(data.title.id) !== Number(state.title.id)) { notify('Video kaynakları yüklenemedi'); return; }
+        var retry = function () { openEpisode(episode, state.resumeTime); };
+        if (error || !data || !data.title || Number(data.title.id) !== Number(state.title.id)) {
+            playerError('Video kaynakları yüklenemedi. ' + errorText(error || new Error('Geçersiz yanıt')), retry);
+            return;
+        }
+        var oldSeasons = state.title.seasons;
         state.title = data.title;
-        state.sources = (data.title.videos || []).filter(function (video) { return video && video.url && video.category === 'full'; });
-        if (!state.sources.length) state.sources = (data.title.videos || []).filter(function (video) { return video && video.url; });
-        if (!state.sources.length) { notify('Video bulunamadı'); return; }
-        var first = state.sources[0];
-        for (var i = 0; i < state.sources.length; i++) if (/tau-video\.xyz/.test(state.sources[i].url)) { first = state.sources[i]; break; }
-        selectSource(first);
+        if ((!state.title.seasons || !state.title.seasons.length) && oldSeasons) state.title.seasons = oldSeasons;
+        var videos = data.title.videos || [];
+        var sources = videos.filter(function (video) { return video && video.url && video.category === 'full'; });
+        if (!sources.length) sources = videos.filter(function (video) { return video && video.url; });
+        if (!sources.length) { playerError('Bu bölüm için video kaynağı bulunamadı.', retry); return; }
+        var direct = sources.filter(function (video) { return /tau-video\.xyz\/embed\//.test(video.url); });
+        var others = sources.filter(function (video) { return !/tau-video\.xyz\/embed\//.test(video.url); });
+        state.sources = direct.concat(others);
+        selectSource(state.sources[0]);
     }, true);
+}
+
+function playerError(text, retry) {
+    var player = document.getElementById('player');
+    if (!player) { notify(text); return; }
+    var old = player.querySelector('.player-error');
+    if (old) player.removeChild(old);
+    clearTimeout(toastTimer);
+    toast.className = '';
+    var overlay = el('div', 'player-error');
+    overlay.appendChild(errorBox(text, retry ? function () { player.removeChild(overlay); retry(); } : null, 'Geri', function () { closePlayer(); }));
+    player.appendChild(overlay);
+    var first = overlay.querySelector('button');
+    if (first) first.focus();
+    showControls();
+}
+
+function sourceFailed(source, reason) {
+    if (state.view !== 'player' || state.source !== source) return;
+    if (state.failedSources.indexOf(source) === -1) state.failedSources.push(source);
+    var video = document.querySelector('#player video');
+    if (video && isFinite(video.currentTime) && video.currentTime > 5) state.resumeTime = video.currentTime;
+    var next = null;
+    for (var i = 0; i < state.sources.length; i++) if (state.failedSources.indexOf(state.sources[i]) === -1) { next = state.sources[i]; break; }
+    if (next) {
+        notify(reason + '. Sıradaki kaynak deneniyor: ' + (next.name || 'Video'));
+        selectSource(next);
+        return;
+    }
+    var episode = state.episode;
+    playerError((state.sources.length > 1 ? 'Bu bölümün ' + state.sources.length + ' kaynağının hiçbiri açılamadı. Son hata: ' : '') + reason + '.', function () { openEpisode(episode, state.resumeTime); });
+}
+
+function clearNext() {
+    clearInterval(nextTimer);
+    nextTimer = null;
+    var overlay = document.querySelector('#player .next-overlay');
+    if (overlay) overlay.parentNode.removeChild(overlay);
+}
+
+function findNextEpisode(callback) {
+    var title = state.title;
+    var season = state.season;
+    var current = Number(state.episode && state.episode.episode_number);
+    function smallestAfter(list, after) {
+        var best = null;
+        for (var i = 0; i < list.length; i++) {
+            var number = Number(list[i] && list[i].episode_number);
+            if (isFinite(number) && number > after && (!best || number < Number(best.episode_number))) best = list[i];
+        }
+        return best;
+    }
+    function nextSeason() {
+        var seasons = title.seasons && title.seasons.length ? title.seasons : (((cachedSeason(title.id, season) || {}).title || {}).seasons || []);
+        var number = null;
+        for (var i = 0; i < seasons.length; i++) {
+            var value = Number(seasons[i].number);
+            if (value > season && (number === null || value < number)) number = value;
+        }
+        if (number === null) { callback(null); return; }
+        fetchSeason(title.id, number, function (error, cached) {
+            if (error || !cached || !cached.episodes.length) { callback(null); return; }
+            callback(smallestAfter(cached.episodes, -Infinity), number, cached);
+        });
+    }
+    function search() {
+        var embedded = title.season && title.season.episodePagination && title.season.episodePagination.data || [];
+        var found = smallestAfter(state.episodes.concat(embedded), current);
+        if (found) { callback(found, season); return; }
+        var pages = title.season && title.season.episodePagination;
+        if (pages && pages.total && state.episodes.length && state.episodes.length < pages.total) {
+            var nextPage = (state.page || 1) + 1;
+            request(API + 'titles/' + encodeURIComponent(title.id) + '?seasonNumber=' + season + '&page=' + nextPage, function (error, data) {
+                var extra = !error && data && data.title && data.title.season && data.title.season.episodePagination && data.title.season.episodePagination.data || [];
+                if (extra.length && state.season === season) {
+                    for (var i = 0; i < extra.length; i++) state.episodes.push(extra[i]);
+                    state.page = nextPage;
+                    storeSeason(title, season, state.episodes, nextPage);
+                }
+                found = smallestAfter(extra, current);
+                if (found) callback(found, season); else nextSeason();
+            }, true);
+            return;
+        }
+        nextSeason();
+    }
+    if (state.episodes.length) { search(); return; }
+    fetchSeason(title.id, season, function (error, cached) {
+        if (!error && cached && state.season === season && !state.episodes.length) {
+            state.episodes = cached.episodes.slice();
+            state.page = cached.page || 1;
+        }
+        search();
+    });
+}
+
+function goToEpisode(episode, season, cached) {
+    clearNext();
+    if (season !== state.season) {
+        state.season = season;
+        state.episodes = cached ? cached.episodes.slice() : [];
+        state.page = cached ? cached.page || 1 : 1;
+    }
+    var info = watchedFor(state.title.id)[season + ':' + episode.episode_number];
+    openEpisode(episode, info && !info.done && info.t > 0 ? info.t : 0);
+}
+
+function playNext() {
+    if (state.view !== 'player' || !state.episode) return;
+    var token = requestToken;
+    var episode = state.episode;
+    notify('Sonraki bölüm aranıyor');
+    findNextEpisode(function (next, season, cached) {
+        if (state.view !== 'player' || token !== requestToken || state.episode !== episode) return;
+        if (!next) { notify('Bu dizinin son bölümündesin'); return; }
+        goToEpisode(next, season, cached);
+    });
+}
+
+function episodeEnded() {
+    if (state.view !== 'player' || !state.episode) return;
+    var token = requestToken;
+    var episode = state.episode;
+    findNextEpisode(function (next, season, cached) {
+        if (state.view !== 'player' || token !== requestToken || state.episode !== episode) return;
+        if (!next) { notify('Son bölümü izledin'); showControls(); return; }
+        showNextOverlay(next, season, cached);
+    });
+}
+
+function showNextOverlay(next, season, cached) {
+    var player = document.getElementById('player');
+    if (!player) return;
+    clearNext();
+    var overlay = el('div', 'next-overlay');
+    overlay.appendChild(el('div', 'next-heading', 'Sıradaki bölüm'));
+    overlay.appendChild(el('div', 'next-name', (season !== state.season ? season + '. Sezon · ' : '') + next.episode_number + '. Bölüm' + (next.name ? ' · ' + next.name : '')));
+    var count = el('div', 'next-count');
+    overlay.appendChild(count);
+    var actions = el('div', 'next-actions');
+    actions.appendChild(button('Şimdi Oynat', 'primary', function () { goToEpisode(next, season, cached); }));
+    actions.appendChild(button('İptal', 'secondary', function () { clearNext(); showControls(); var bar = document.querySelector('#player .seek-bar'); if (bar) bar.focus(); }));
+    overlay.appendChild(actions);
+    player.appendChild(overlay);
+    var seconds = 10;
+    count.textContent = seconds + ' saniye içinde başlayacak';
+    nextTimer = setInterval(function () {
+        seconds--;
+        if (seconds <= 0) { goToEpisode(next, season, cached); return; }
+        count.textContent = seconds + ' saniye içinde başlayacak';
+    }, 1000);
+    actions.firstChild.focus();
+    showControls();
+}
+
+function skipIntro() {
+    var video = document.querySelector('#player video');
+    if (!video || !isFinite(video.duration) || video.duration <= 0) { notify('Önce video açılmalı'); return; }
+    seekBy(video, introSkipSeconds);
+    notify('Giriş atlandı (+' + introSkipSeconds + ' sn)');
 }
 
 function formatTime(seconds) {
@@ -740,9 +1109,14 @@ function renderPlayer() {
     var top = el('div', 'player-top');
     top.appendChild(button('Geri', '', function () { closePlayer(); }));
     top.appendChild(el('div', 'player-title', state.title.name + ' · ' + state.season + '. Sezon ' + state.episode.episode_number + '. Bölüm'));
-    top.appendChild(button('Kaynak', '', showSources));
-    top.appendChild(button('Kalite', '', showQualities));
+    var skip = button('Girişi Atla', 'skip-intro key-yellow', skipIntro);
+    skip.style.display = 'none';
+    top.appendChild(skip);
+    top.appendChild(button('Sonraki', 'key-blue', playNext));
+    top.appendChild(button('Kaynak', 'key-red', showSources));
+    top.appendChild(button('Kalite', 'key-green', showQualities));
     player.appendChild(top);
+    player.appendChild(el('div', 'skip-hint', 'Sarı tuş: Girişi atla (+' + introSkipSeconds + ' sn)'));
     var bottom = el('div', 'player-bottom');
     bottom.appendChild(button('Oynat', 'play-button', togglePlayback));
     var progress = button('', 'seek-bar', function (event) {
@@ -778,19 +1152,22 @@ function selectSource(source) {
     if (oldMedia) player.removeChild(oldMedia);
     var choice = player.querySelector('.choice');
     if (choice) player.removeChild(choice);
+    var errorOverlay = player.querySelector('.player-error');
+    if (errorOverlay) player.removeChild(errorOverlay);
     if (/tau-video\.xyz\/embed\//.test(source.url)) {
         var match = source.url.match(/\/embed\/([^/?#]+)/);
-        if (!match) { notify('Video adresi geçersiz'); return; }
+        if (!match) { sourceFailed(source, 'Video adresi geçersiz'); return; }
         loadPreviewCues(match[1], source);
         request('https://tau-video.xyz/api/video/' + encodeURIComponent(match[1]), function (error, data) {
             if (state.view !== 'player' || state.source !== source) return;
-            if (error || !data || (!data.urls && !data.hls)) { notify('Video yüklenemedi'); return; }
+            if (error || !data || (!data.urls && !data.hls)) { sourceFailed(source, (source.name || 'Kaynak') + ' açılamadı'); return; }
             state.videoData = data;
             var urls = data.urls || [];
             var selected = urls[0];
             for (var i = 0; i < urls.length; i++) if (urls[i].label === '720p') selected = urls[i];
             if (selected) playUrl(selected.url, selected.label);
             else if (data.hls) playUrl(data.hls, 'HLS');
+            else sourceFailed(source, (source.name || 'Kaynak') + ' video içermiyor');
         });
     } else {
         state.videoData = null;
@@ -803,7 +1180,8 @@ function selectSource(source) {
 }
 
 function playUrl(url, label) {
-    if (!/^https:\/\//i.test(url)) { notify('Video adresi geçersiz'); return; }
+    var source = state.source;
+    if (!/^https:\/\//i.test(url)) { sourceFailed(source, 'Video adresi geçersiz'); return; }
     var player = document.getElementById('player');
     if (!player) return;
     var old = player.querySelector('video,iframe');
@@ -817,7 +1195,11 @@ function playUrl(url, label) {
     video.preload = 'auto';
     video.autoplay = true;
     video.src = url;
+    var loadTimer = setTimeout(function () {
+        if (video.parentNode && video.readyState < 1) sourceFailed(source, (source && source.name || 'Kaynak') + ' zamanında açılmadı');
+    }, 25000);
     video.addEventListener('loadedmetadata', function () {
+        clearTimeout(loadTimer);
         var targetTime = time || state.resumeTime || 0;
         if (targetTime > 0 && isFinite(video.duration)) video.currentTime = Math.min(targetTime, video.duration - 1);
         state.resumeTime = 0;
@@ -828,8 +1210,13 @@ function playUrl(url, label) {
     video.addEventListener('play', updateProgress);
     video.addEventListener('pause', function () { saveProgress(true); });
     video.addEventListener('pause', updateProgress);
-    video.addEventListener('ended', function () { saveProgress(true); });
-    video.addEventListener('error', function () { notify('Video açılamadı'); showControls(); });
+    video.addEventListener('ended', function () { saveProgress(true); episodeEnded(); });
+    video.addEventListener('error', function () {
+        clearTimeout(loadTimer);
+        if (!video.parentNode) return;
+        sourceFailed(source, (source && source.name || 'Kaynak') + ' oynatılamadı');
+        showControls();
+    });
     player.insertBefore(video, player.firstChild);
     state.quality = label;
     video.play();
@@ -848,6 +1235,14 @@ function updateProgress() {
     time.textContent = formatTime(displayedTime) + ' / ' + formatTime(video.duration);
     var play = document.querySelector('#player .play-button');
     if (play) play.textContent = video.paused ? 'Oynat' : 'Duraklat';
+    var intro = isFinite(video.duration) && video.duration > 600 && video.currentTime < 300;
+    var skip = document.querySelector('#player .skip-intro');
+    if (skip) {
+        if (!intro && document.activeElement === skip) { var seekBar = document.querySelector('#player .seek-bar'); if (seekBar) seekBar.focus(); }
+        skip.style.display = intro ? '' : 'none';
+    }
+    var hint = document.querySelector('#player .skip-hint');
+    if (hint) hint.className = intro && video.currentTime > 3 ? 'skip-hint visible' : 'skip-hint';
     saveProgress(false);
 }
 
@@ -1008,17 +1403,19 @@ function closePlayer() {
     clearTimeout(seekCommitTimer);
     hideSeekPreview();
     clearTimeout(playerTimer);
+    clearNext();
     var video = document.querySelector('#player video');
     if (video) { saveProgress(true); video.pause(); }
     document.getElementById('app').className = '';
     document.getElementById('topbar').style.display = 'flex';
     state.view = 'detail';
+    state.detailError = null;
     if (!state.episodes.length) {
         loadSeason(state.season);
     } else {
         renderDetail();
-        var first = content.querySelector('.episode');
-        if (first) first.focus();
+        var first = content.querySelector('.episode.resume') || content.querySelector('.episode');
+        if (first) { first.focus(); first.scrollIntoView(false); }
     }
 }
 
@@ -1026,6 +1423,7 @@ function back() {
     if (state.view === 'player') {
         var choice = document.querySelector('#player .choice');
         if (choice) { choice.parentNode.removeChild(choice); showControls(); return; }
+        if (document.querySelector('#player .next-overlay')) { clearNext(); showControls(); var bar = document.querySelector('#player .seek-bar'); if (bar) bar.focus(); return; }
         closePlayer();
     } else if (state.view === 'detail' || state.view === 'search' || state.view === 'login' || state.view === 'switch' || state.view === 'register') {
         showHome();
@@ -1046,7 +1444,7 @@ function moveFocus(direction) {
     var x = (currentRect.left + currentRect.right) / 2;
     var y = (currentRect.top + currentRect.bottom) / 2;
     var horizontal = direction === 'left' || direction === 'right';
-    var group = horizontal && current.closest ? current.closest('#topbar, .cards, .season-bar, .episode-list, .player-top, .player-bottom, .choice') : null;
+    var group = horizontal && current.closest ? current.closest('#topbar, .cards, .season-bar, .error-actions, .next-actions, .history-list, .episode-list, .player-top, .player-bottom, .choice') : null;
     var nodes = group ? group.querySelectorAll('.focusable') : document.querySelectorAll('.focusable');
     var best = null;
     var bestScore = Infinity;
@@ -1081,10 +1479,12 @@ document.addEventListener('keydown', function (event) {
     var key = event.key || '';
     var code = event.keyCode;
     if (code === 10009 || key === 'Backspace' && document.activeElement.tagName !== 'INPUT' || key === 'Escape') { event.preventDefault(); back(); return; }
+    var color = code === 403 || key === 'ColorF0Red' ? 'red' : code === 404 || key === 'ColorF1Green' ? 'green' : code === 405 || key === 'ColorF2Yellow' ? 'yellow' : code === 406 || key === 'ColorF3Blue' ? 'blue' : '';
+    if (color) { event.preventDefault(); colorKey(color); return; }
     if (state.view === 'player') {
         showControls();
-        var video = document.querySelector('#player video');
-        var choice = document.querySelector('#player .choice');
+        var choice = document.querySelector('#player .choice, #player .player-error, #player .next-overlay');
+        var video = choice ? null : document.querySelector('#player video');
         if (code === 10252 || code === 415 || code === 19 || key === 'MediaPlayPause') { event.preventDefault(); togglePlayback(); return; }
         if (code === 413 || key === 'MediaStop') { event.preventDefault(); closePlayer(); return; }
         if (!choice && video && (code === 412 || key === 'MediaRewind')) { event.preventDefault(); seekBy(video, -10); return; }
@@ -1096,7 +1496,7 @@ document.addEventListener('keydown', function (event) {
     if (document.activeElement.tagName === 'INPUT') {
         if (state.view === 'search' && (key === 'ArrowDown' || code === 40)) {
             event.preventDefault();
-            var firstResult = content.querySelector('.search-page .card');
+            var firstResult = content.querySelector('.search-page .card, .search-page .history-item, .search-page .error-box button');
             if (firstResult) { firstResult.focus(); firstResult.scrollIntoView(false); }
             else searchMovePending = true;
         }
@@ -1110,8 +1510,27 @@ document.addEventListener('keydown', function (event) {
     else if (key === 'Enter' || code === 13) { if (document.activeElement && document.activeElement.click) { event.preventDefault(); document.activeElement.click(); } }
 });
 
+function colorKey(color) {
+    if (state.view === 'player') {
+        if (color === 'red') showSources();
+        else if (color === 'green') showQualities();
+        else if (color === 'yellow') skipIntro();
+        else playNext();
+        return;
+    }
+    if (color === 'red') openSearch();
+    else if (color === 'green') {
+        var latest = readProgress()[0];
+        if (latest) resumeEpisode(latest); else notify('Devam edilecek bölüm yok');
+    } else if (color === 'yellow') accountAction();
+    else { showHome(); document.getElementById('brand').focus(); }
+}
+
 try {
     if (window.tizen && tizen.tvinputdevice) tizen.tvinputdevice.registerKeyBatch(['MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaRewind', 'MediaFastForward']);
+} catch (error) {}
+try {
+    if (window.tizen && tizen.tvinputdevice) tizen.tvinputdevice.registerKeyBatch(['ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue']);
 } catch (error) {}
 
 document.addEventListener('visibilitychange', function () { if (document.hidden) saveProgress(true); });

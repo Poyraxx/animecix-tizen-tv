@@ -20,6 +20,13 @@ Bu proje AnimeciX veya Samsung'un resmî uygulaması değildir. Herhangi bir vid
 - Kaldığın yerden devam etme
 - Hesap geçmişini TV'de yerel olarak saklama
 - Kaynak ve kalite seçimi
+- Açılmayan video kaynağında sıradaki kaynağa otomatik geçiş
+- Bölüm bitince 10 saniyelik sayaçla sonraki bölüme geçiş, sezon sonunda sonraki sezona geçiş
+- Girişi atlama (85 saniye)
+- Bölüm listesinde izlendi işareti, yarıda kalan bölümler için ilerleme çubuğu ve kaldığın bölüme otomatik odak
+- Son aramaları saklama
+- Renkli kumanda tuşlarıyla kısayollar
+- Sunucu kapalıyken açıklayıcı hata mesajı ve Tekrar Dene düğmesi
 - Oynat, duraklat, ileri sar ve geri sar kontrolleri
 - İzleme konumunu TV'de saklama
 - Hesap oturumunu bilgisayarda şifreli saklama
@@ -144,6 +151,10 @@ Paket adı farklı oluşursa `-n` değerini çıkan dosya adıyla değiştirin.
 - Geri: Açık menüyü kapatma veya önceki ekrana dönme
 - Play/Pause: Oynatma durumunu değiştirme
 - Rewind/Fast Forward: On saniye geri veya ileri sarma
+- Kırmızı: Arama (video sırasında Kaynak)
+- Yeşil: Son izlenen bölüme devam (video sırasında Kalite)
+- Sarı: Hesap (video sırasında Girişi atla)
+- Mavi: Ana sayfa (video sırasında Sonraki bölüm)
 
 Video kaynağı zaman çizelgesi için gerçek storyboard görselleri sağlıyorsa sarma kartında ilgili kare gösterilir. Kaynak bu veriyi sağlamıyorsa kartta seçilen süre görünür.
 
@@ -183,4 +194,4 @@ Yanıt `{"ready":true}` olmalıdır. Yanıt gelmiyorsa kurulumu tekrar çalışt
 
 ### Sağ ve sol tuşları videoyu sarmıyor
 
-Video ekranında aşağı tuşuyla zaman çizelgesine gelin. Zaman çizelgesi odaktayken sağ ve sol tuşları sarma için kullanılır. Üst menü odaktayken aynı tuşlar Kaynak ve Kalite düğmeleri arasında dolaşır.
+Video ekranında aşağı tuşuyla zaman çizelgesine gelin. Zaman çizelgesi odaktayken sağ ve sol tuşları sarma için kullanılır. Üst menü odaktayken aynı tuşlar üst menüdeki düğmeler arasında dolaşır.
